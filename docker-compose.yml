@@ -61,6 +61,10 @@ services:
   postgres:
     << : *restart_policy
     image: 'postgres:9.6'
+    environment:
+      POSTGRES_USER: 'sentry'
+      POSTGRES_DB: 'sentry'
+      POSTGRES_PASSWORD: 'dranpas3Kno'
     volumes:
       - 'sentry-postgres:/var/lib/postgresql/data'
   zookeeper:
