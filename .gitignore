@@ -72,8 +72,3 @@ docker-compose.override.yml
 *.tar
 data/
 .vscode/tags
-
-# custom Sentry config
-sentry/sentry.conf.py
-sentry/config.yml
-sentry/requirements.txt
