@@ -74,6 +74,7 @@ data/
 .vscode/tags
 
 # custom Sentry config
+# Comment the config files because we will be editing this
 # sentry/sentry.conf.py
 # sentry/config.yml
 # sentry/requirements.txt
