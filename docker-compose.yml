@@ -15,6 +15,7 @@ x-sentry-defaults: &sentry_defaults
     - smtp
     - snuba-api
     - snuba-consumer
+    - snuba-outcomes-consumer
     - snuba-replacer
     - symbolicator
     - kafka
@@ -28,7 +29,7 @@ x-snuba-defaults: &snuba_defaults
     - redis
     - clickhouse
     - kafka
-  image: 'getsentry/snuba:latest'
+  image: '$SNUBA_IMAGE'
   environment:
     SNUBA_SETTINGS: docker
     CLICKHOUSE_HOST: clickhouse
@@ -65,6 +66,7 @@ services:
       POSTGRES_USER: 'sentry'
       POSTGRES_DB: 'sentry'
       POSTGRES_PASSWORD: 'dranpas3Kno'
+      POSTGRES_HOST_AUTH_METHOD: 'trust'
     volumes:
       - 'sentry-postgres:/var/lib/postgresql/data'
   zookeeper:
@@ -98,7 +100,7 @@ services:
       - 'sentry-secrets:/etc/kafka/secrets'
   clickhouse:
     << : *restart_policy
-    image: 'yandex/clickhouse-server:19.11'
+    image: 'yandex/clickhouse-server:19.17'
     ulimits:
       nofile:
         soft: 262144
@@ -107,9 +109,16 @@ services:
       - 'sentry-clickhouse:/var/lib/clickhouse'
   snuba-api:
     << : *snuba_defaults
+  # Kafka consumer responsible for feeding events into Clickhouse
   snuba-consumer:
     << : *snuba_defaults
-    command: consumer --auto-offset-reset=latest --max-batch-time-ms 750
+    command: consumer --dataset events --auto-offset-reset=latest --max-batch-time-ms 750
+  # Kafka consumer responsible for feeding outcomes into Clickhouse
+  # Use --auto-offset-reset=earliest to recover up to 7 days of TSDB data
+  # since we did not do a proper migration
+  snuba-outcomes-consumer:
+    << : *snuba_defaults
+    command: consumer --dataset outcomes --auto-offset-reset=earliest --max-batch-time-ms 750
   snuba-replacer:
     << : *snuba_defaults
     command: replacer --auto-offset-reset=latest --max-batch-size 3
@@ -119,20 +128,21 @@ services:
     build:
       context: ./cron
       args:
-        BASE_IMAGE: 'getsentry/snuba:latest'
+        BASE_IMAGE: '$SNUBA_IMAGE'
     command: '"*/5 * * * * gosu snuba snuba cleanup --dry-run False"'
   symbolicator:
     << : *restart_policy
-    image: 'getsentry/symbolicator:latest'
+    image: '$SYMBOLICATOR_IMAGE'
     volumes:
       - 'sentry-symbolicator:/data'
     command: run
   symbolicator-cleanup:
+    << : *restart_policy
     image: symbolicator-cleanup-onpremise-local
     build:
       context: ./cron
       args:
-        BASE_IMAGE: 'getsentry/symbolicator:latest'
+        BASE_IMAGE: '$SYMBOLICATOR_IMAGE'
     command: '"55 23 * * * gosu symbolicator symbolicator cleanup"'
     volumes:
       - 'sentry-symbolicator:/data'

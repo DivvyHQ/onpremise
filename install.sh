@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source <(grep -v '^#' .env | sed -E 's|^(.+)=(.*)$|: ${\1=\2}; export \1|g')
+
 dc="docker-compose --no-ansi"
 dcr="$dc run --rm"
 
@@ -90,21 +92,32 @@ ensure_file_from_example $SENTRY_CONFIG_PY
 ensure_file_from_example $SENTRY_CONFIG_YML
 ensure_file_from_example $SENTRY_EXTRA_REQUIREMENTS
 
+if grep -xq "system.secret-key: '!!changeme!!'" $SENTRY_CONFIG_YML ; then
+    echo ""
+    echo "Generating secret key..."
+    # This is to escape the secret key to be used in sed below
+    # Note the need to set LC_ALL=C due to BSD tr and sed always trying to decode
+    # whatever is passed to them. Kudos to https://stackoverflow.com/a/23584470/90297
+    SECRET_KEY=$(export LC_ALL=C; head /dev/urandom | tr -dc "a-z0-9@#%^&*(-_=+)" | head -c 50 | sed -e 's/[\/&]/\\&/g')
+    sed -i -e 's/^system.secret-key:.*$/system.secret-key: '"'$SECRET_KEY'"'/' $SENTRY_CONFIG_YML
+    echo "Secret key written to $SENTRY_CONFIG_YML"
+fi
+
 echo ""
-echo "Generating secret key..."
-# This is to escape the secret key to be used in sed below
-# Note the need to set LC_ALL=C due to BSD tr and sed always trying to decode
-# whatever is passed to them. Kudos to https://stackoverflow.com/a/23584470/90297
-SECRET_KEY=$(export LC_ALL=C; head /dev/urandom | tr -dc "a-z0-9@#%^&*(-_=+)" | head -c 50 | sed -e 's/[\/&]/\\&/g')
-sed -i -e 's/^system.secret-key:.*$/system.secret-key: '"'$SECRET_KEY'"'/' $SENTRY_CONFIG_YML
-echo "Secret key written to $SENTRY_CONFIG_YML"
+echo "Fetching and updating Docker images..."
+echo ""
+# We tag locally built images with an '-onpremise-local' suffix. docker-compose pull tries to pull these too and
+# shows a 404 error on the console which is confusing and unnecessary. To overcome this, we add the stderr>stdout
+# redirection below and pass it through grep, ignoring all lines having this '-onpremise-local' suffix.
+$dc pull -q --ignore-pull-failures 2>&1 | grep -v -- -onpremise-local || true
+
+# We may not have the set image on the repo (local images) so allow fails
+docker pull $SENTRY_IMAGE || true;
 
 echo ""
 echo "Building and tagging Docker images..."
 echo ""
 # Build the sentry onpremise image first as it is needed for the cron image
-$dc pull --ignore-pull-failures
-docker pull ${SENTRY_IMAGE:-getsentry/sentry:latest}
 $dc build --force-rm web
 $dc build --force-rm --parallel
 echo ""
